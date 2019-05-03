@@ -3,7 +3,7 @@
 # Generic Spark standalone cluster
 ##################################################################
 #SBATCH -J Spk-mNYT
-#SBATCH --time=3-00:00:00   # 10 dias
+#SBATCH --time=0-08:00:00   # 10 dias
 #SBATCH --partition=batch
 #SBATCH --qos qos-batch
 ###SBATCH -N 2
