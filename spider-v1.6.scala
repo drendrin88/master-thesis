@@ -54,15 +54,21 @@ val allTestData = processData(allTestFiles)
 println(">>>>>>> Number Files: " + allFiles.count)
 println(">>>>>>> Number Train Lines: " + allTrainData.count)
 println(">>>>>>> Number Test Lines: " + allTestData.count)
+
+/// ------------------- Testing Scenario 01
 allTrainData.persist()
-
-/// ------------------- Cross-Validation for Model Tuning
-
+allTestData.persist()
 val trainingData = allTrainData.map {x => LabeledPoint(x._16.toDouble, 
     Vectors.dense(x._9.toDouble, x._10.toDouble, x._11.toDouble,
         x._12.toDouble, x._13.toDouble, x._14.toDouble))
 }
+
+val testData = allTestData.map {x => LabeledPoint(x._16.toDouble, 
+    Vectors.dense(x._9.toDouble, x._10.toDouble, x._11.toDouble,
+        x._12.toDouble, x._13.toDouble, x._14.toDouble))
+}
 allTrainData.unpersist()
+allTestData.unpersist()
 trainingData.persist()
 
 val Array(trainDt, valDt) = trainingData.randomSplit(Array(0.8, 0.2))
@@ -105,21 +111,13 @@ val bestRFImpurity = modelTuningRF.maxBy(_._2)._1._2
 val bestRFDepth = modelTuningRF.maxBy(_._2)._1._3
 val bestRFBins = modelTuningRF.maxBy(_._2)._1._4
 
-trainDt.unpersist()
-valDt.unpersist()
-
 // Based on Model Tuning, training the classifier
 val modelDT = DecisionTree.trainClassifier(trainingData, numClasses, catFeature, bestDTImpurity, bestDTDepth, bestDTBins)
 val modelRF = RandomForest.trainClassifier(trainingData, numClasses, catFeature, bestNuTrees, "auto", bestRFImpurity, bestRFDepth, bestRFBins)
 trainingData.unpersist()
 allTestData.persist()
-
-/// ------------------- Final Evaluation 
-
-val testData = allTestData.map {x => LabeledPoint(x._16.toDouble, 
-    Vectors.dense(x._9.toDouble, x._10.toDouble, x._11.toDouble,
-        x._12.toDouble, x._13.toDouble, x._14.toDouble))
-}
+trainDt.unpersist()
+valDt.unpersist()
 
 val predictionAndLabelsDT = testData.map { case LabeledPoint(label, features) =>
     val prediction = modelDT.predict(features)
@@ -130,11 +128,12 @@ val predictionAndLabelsRF = testData.map { case LabeledPoint(label, features) =>
     val prediction = modelRF.predict(features)
     (prediction, label)
 }
-
+allTestData.unpersist()
 val metricsDT = new BinaryClassificationMetrics(predictionAndLabelsDT)
 val metricsRF = new BinaryClassificationMetrics(predictionAndLabelsRF)
 
-// Precision, Recall and F-Measure
+// Metrics
+println("\n\n\n====== Printing Results for Scenario 01")
 println("Precision DT: " + metricsDT.precisionByThreshold.max._2)
 println("Precision RF: " + metricsRF.precisionByThreshold.max._2)
 println("Recall DT: " + metricsDT.recallByThreshold.max._2)
@@ -143,3 +142,276 @@ println("F-Measure DT: " + metricsDT.fMeasureByThreshold.max._2)
 println("F-Measure RF: " + metricsRF.fMeasureByThreshold.max._2)
 println("Area under P-R Curve DT: " + metricsDT.areaUnderPR)
 println("Area under P-R Curve RF: " + metricsRF.areaUnderPR)
+
+/// ------------------- Testing Scenario 02
+allTrainData.persist()
+allTestData.persist()
+val trainingData = allTrainData.map {x => LabeledPoint(x._16.toDouble, 
+    Vectors.dense(x._2.toDouble, x._3.toDouble, x._4.toDouble,
+        x._5.toDouble, x._6.toDouble, x._7.toDouble, x._8.toDouble,
+        x._9.toDouble, x._10.toDouble, x._11.toDouble,
+        x._12.toDouble, x._13.toDouble, x._14.toDouble))
+}
+
+val testData = allTestData.map {x => LabeledPoint(x._16.toDouble, 
+    Vectors.dense(x._2.toDouble, x._3.toDouble, x._4.toDouble,
+        x._5.toDouble, x._6.toDouble, x._7.toDouble, x._8.toDouble,
+        x._9.toDouble, x._10.toDouble, x._11.toDouble,
+        x._12.toDouble, x._13.toDouble, x._14.toDouble))
+}
+allTrainData.unpersist()
+allTestData.unpersist()
+trainingData.persist()
+
+val Array(trainDt, valDt) = trainingData.randomSplit(Array(0.8, 0.2))
+trainDt.cache()
+valDt.cache()
+
+val cvData = MLUtils.kFold(trainingData, 10, 0)
+val numClasses = 2
+val catFeature = Map[Int, Int]()
+
+// Evaluation to find the best model
+val modelTuningDT = for (
+    (trainDt, valDt) <- cvData; 
+    impurity <- Array("gini", "entropy"); 
+    depth <- Array(5, 10, 20); 
+    bins <- Array(50, 100, 200, 300)) yield {
+    val model = DecisionTree.trainClassifier(trainDt, numClasses, catFeature, impurity, depth, bins)
+    val predictionsAndLabels = valDt.map(example => (model.predict(example.features), example.label))
+    val areaUnderPR = new BinaryClassificationMetrics(predictionsAndLabels).areaUnderPR
+    ((impurity, depth, bins), areaUnderPR)
+}
+
+val bestDTImpurity = modelTuningDT.maxBy(_._2)._1._1
+val bestDTDepth = modelTuningDT.maxBy(_._2)._1._2
+val bestDTBins = modelTuningDT.maxBy(_._2)._1._3
+
+val modelTuningRF = for ((trainDt, valDt) <- cvData;
+    trees <- Array(5, 10, 20); 
+    impurity <- Array("gini", "entropy"); 
+    depth <- Array(5, 10, 20); 
+    bins <- Array(50, 100, 200, 300)) yield {
+    val model = RandomForest.trainClassifier(trainDt, numClasses, catFeature, trees, "auto", impurity, depth, bins)
+    val predictionsAndLabels = valDt.map(example => (model.predict(example.features), example.label))
+    val areaUnderPR = new BinaryClassificationMetrics(predictionsAndLabels).areaUnderPR
+    ((trees, impurity, depth, bins), areaUnderPR)
+}
+
+val bestNuTrees = modelTuningRF.maxBy(_._2)._1._1
+val bestRFImpurity = modelTuningRF.maxBy(_._2)._1._2
+val bestRFDepth = modelTuningRF.maxBy(_._2)._1._3
+val bestRFBins = modelTuningRF.maxBy(_._2)._1._4
+
+// Based on Model Tuning, training the classifier
+val modelDT = DecisionTree.trainClassifier(trainingData, numClasses, catFeature, bestDTImpurity, bestDTDepth, bestDTBins)
+val modelRF = RandomForest.trainClassifier(trainingData, numClasses, catFeature, bestNuTrees, "auto", bestRFImpurity, bestRFDepth, bestRFBins)
+trainingData.unpersist()
+allTestData.persist()
+trainDt.unpersist()
+valDt.unpersist()
+
+val predictionAndLabelsDT = testData.map { case LabeledPoint(label, features) =>
+    val prediction = modelDT.predict(features)
+    (prediction, label)
+}
+
+val predictionAndLabelsRF = testData.map { case LabeledPoint(label, features) =>
+    val prediction = modelRF.predict(features)
+    (prediction, label)
+}
+allTestData.unpersist()
+val metricsDT = new BinaryClassificationMetrics(predictionAndLabelsDT)
+val metricsRF = new BinaryClassificationMetrics(predictionAndLabelsRF)
+
+// Metrics
+println("\n\n\n====== Printing Results for Scenario 02")
+println("Precision DT: " + metricsDT.precisionByThreshold.max._2)
+println("Precision RF: " + metricsRF.precisionByThreshold.max._2)
+println("Recall DT: " + metricsDT.recallByThreshold.max._2)
+println("Recall RF: " + metricsRF.recallByThreshold.max._2)
+println("F-Measure DT: " + metricsDT.fMeasureByThreshold.max._2)
+println("F-Measure RF: " + metricsRF.fMeasureByThreshold.max._2)
+println("Area under P-R Curve DT: " + metricsDT.areaUnderPR)
+println("Area under P-R Curve RF: " + metricsRF.areaUnderPR)
+
+/// ------------------- Testing Scenario 03
+allTrainData.persist()
+allTestData.persist()
+val trainingData = allTrainData.map {x => LabeledPoint(x._16.toDouble, 
+    Vectors.dense(x._2.toDouble, x._3.toDouble, x._5.toDouble, 
+        x._6.toDouble, x._9.toDouble, x._10.toDouble,
+        x._12.toDouble, x._13.toDouble))
+}
+
+val testData = allTestData.map {x => LabeledPoint(x._16.toDouble, 
+    Vectors.dense(x._2.toDouble, x._3.toDouble, x._5.toDouble, 
+        x._6.toDouble, x._9.toDouble, x._10.toDouble,
+        x._12.toDouble, x._13.toDouble))
+}
+allTrainData.unpersist()
+allTestData.unpersist()
+trainingData.persist()
+
+val Array(trainDt, valDt) = trainingData.randomSplit(Array(0.8, 0.2))
+trainDt.cache()
+valDt.cache()
+
+val cvData = MLUtils.kFold(trainingData, 10, 0)
+val numClasses = 2
+val catFeature = Map[Int, Int]()
+
+// Evaluation to find the best model
+val modelTuningDT = for (
+    (trainDt, valDt) <- cvData; 
+    impurity <- Array("gini", "entropy"); 
+    depth <- Array(5, 10, 20); 
+    bins <- Array(50, 100, 200, 300)) yield {
+    val model = DecisionTree.trainClassifier(trainDt, numClasses, catFeature, impurity, depth, bins)
+    val predictionsAndLabels = valDt.map(example => (model.predict(example.features), example.label))
+    val areaUnderPR = new BinaryClassificationMetrics(predictionsAndLabels).areaUnderPR
+    ((impurity, depth, bins), areaUnderPR)
+}
+
+val bestDTImpurity = modelTuningDT.maxBy(_._2)._1._1
+val bestDTDepth = modelTuningDT.maxBy(_._2)._1._2
+val bestDTBins = modelTuningDT.maxBy(_._2)._1._3
+
+val modelTuningRF = for ((trainDt, valDt) <- cvData;
+    trees <- Array(5, 10, 20); 
+    impurity <- Array("gini", "entropy"); 
+    depth <- Array(5, 10, 20); 
+    bins <- Array(50, 100, 200, 300)) yield {
+    val model = RandomForest.trainClassifier(trainDt, numClasses, catFeature, trees, "auto", impurity, depth, bins)
+    val predictionsAndLabels = valDt.map(example => (model.predict(example.features), example.label))
+    val areaUnderPR = new BinaryClassificationMetrics(predictionsAndLabels).areaUnderPR
+    ((trees, impurity, depth, bins), areaUnderPR)
+}
+
+val bestNuTrees = modelTuningRF.maxBy(_._2)._1._1
+val bestRFImpurity = modelTuningRF.maxBy(_._2)._1._2
+val bestRFDepth = modelTuningRF.maxBy(_._2)._1._3
+val bestRFBins = modelTuningRF.maxBy(_._2)._1._4
+
+// Based on Model Tuning, training the classifier
+val modelDT = DecisionTree.trainClassifier(trainingData, numClasses, catFeature, bestDTImpurity, bestDTDepth, bestDTBins)
+val modelRF = RandomForest.trainClassifier(trainingData, numClasses, catFeature, bestNuTrees, "auto", bestRFImpurity, bestRFDepth, bestRFBins)
+trainingData.unpersist()
+allTestData.persist()
+trainDt.unpersist()
+valDt.unpersist()
+
+val predictionAndLabelsDT = testData.map { case LabeledPoint(label, features) =>
+    val prediction = modelDT.predict(features)
+    (prediction, label)
+}
+
+val predictionAndLabelsRF = testData.map { case LabeledPoint(label, features) =>
+    val prediction = modelRF.predict(features)
+    (prediction, label)
+}
+allTestData.unpersist()
+val metricsDT = new BinaryClassificationMetrics(predictionAndLabelsDT)
+val metricsRF = new BinaryClassificationMetrics(predictionAndLabelsRF)
+
+// Metrics
+println("\n\n\n====== Printing Results for Scenario 03")
+println("Precision DT: " + metricsDT.precisionByThreshold.max._2)
+println("Precision RF: " + metricsRF.precisionByThreshold.max._2)
+println("Recall DT: " + metricsDT.recallByThreshold.max._2)
+println("Recall RF: " + metricsRF.recallByThreshold.max._2)
+println("F-Measure DT: " + metricsDT.fMeasureByThreshold.max._2)
+println("F-Measure RF: " + metricsRF.fMeasureByThreshold.max._2)
+println("Area under P-R Curve DT: " + metricsDT.areaUnderPR)
+println("Area under P-R Curve RF: " + metricsRF.areaUnderPR)
+
+/// ------------------- Testing Scenario 04
+allTrainData.persist()
+allTestData.persist()
+val trainingData = allTrainData.map {x => LabeledPoint(x._16.toDouble, 
+    Vectors.dense(x._4.toDouble, x._5.toDouble, 
+        x._6.toDouble, x._8.toDouble, x._11.toDouble, 
+        x._12.toDouble, x._13.toDouble))
+}
+
+val testData = allTestData.map {x => LabeledPoint(x._16.toDouble, 
+    Vectors.dense(x._4.toDouble, x._5.toDouble, 
+        x._6.toDouble, x._8.toDouble, x._11.toDouble, 
+        x._12.toDouble, x._13.toDouble))
+}
+allTrainData.unpersist()
+allTestData.unpersist()
+trainingData.persist()
+
+val Array(trainDt, valDt) = trainingData.randomSplit(Array(0.8, 0.2))
+trainDt.cache()
+valDt.cache()
+
+val cvData = MLUtils.kFold(trainingData, 10, 0)
+val numClasses = 2
+val catFeature = Map[Int, Int]()
+
+// Evaluation to find the best model
+val modelTuningDT = for (
+    (trainDt, valDt) <- cvData; 
+    impurity <- Array("gini", "entropy"); 
+    depth <- Array(5, 10, 20); 
+    bins <- Array(50, 100, 200, 300)) yield {
+    val model = DecisionTree.trainClassifier(trainDt, numClasses, catFeature, impurity, depth, bins)
+    val predictionsAndLabels = valDt.map(example => (model.predict(example.features), example.label))
+    val areaUnderPR = new BinaryClassificationMetrics(predictionsAndLabels).areaUnderPR
+    ((impurity, depth, bins), areaUnderPR)
+}
+
+val bestDTImpurity = modelTuningDT.maxBy(_._2)._1._1
+val bestDTDepth = modelTuningDT.maxBy(_._2)._1._2
+val bestDTBins = modelTuningDT.maxBy(_._2)._1._3
+
+val modelTuningRF = for ((trainDt, valDt) <- cvData;
+    trees <- Array(5, 10, 20); 
+    impurity <- Array("gini", "entropy"); 
+    depth <- Array(5, 10, 20); 
+    bins <- Array(50, 100, 200, 300)) yield {
+    val model = RandomForest.trainClassifier(trainDt, numClasses, catFeature, trees, "auto", impurity, depth, bins)
+    val predictionsAndLabels = valDt.map(example => (model.predict(example.features), example.label))
+    val areaUnderPR = new BinaryClassificationMetrics(predictionsAndLabels).areaUnderPR
+    ((trees, impurity, depth, bins), areaUnderPR)
+}
+
+val bestNuTrees = modelTuningRF.maxBy(_._2)._1._1
+val bestRFImpurity = modelTuningRF.maxBy(_._2)._1._2
+val bestRFDepth = modelTuningRF.maxBy(_._2)._1._3
+val bestRFBins = modelTuningRF.maxBy(_._2)._1._4
+
+// Based on Model Tuning, training the classifier
+val modelDT = DecisionTree.trainClassifier(trainingData, numClasses, catFeature, bestDTImpurity, bestDTDepth, bestDTBins)
+val modelRF = RandomForest.trainClassifier(trainingData, numClasses, catFeature, bestNuTrees, "auto", bestRFImpurity, bestRFDepth, bestRFBins)
+trainingData.unpersist()
+allTestData.persist()
+trainDt.unpersist()
+valDt.unpersist()
+
+val predictionAndLabelsDT = testData.map { case LabeledPoint(label, features) =>
+    val prediction = modelDT.predict(features)
+    (prediction, label)
+}
+
+val predictionAndLabelsRF = testData.map { case LabeledPoint(label, features) =>
+    val prediction = modelRF.predict(features)
+    (prediction, label)
+}
+allTestData.unpersist()
+val metricsDT = new BinaryClassificationMetrics(predictionAndLabelsDT)
+val metricsRF = new BinaryClassificationMetrics(predictionAndLabelsRF)
+
+// Metrics
+println("\n\n\n====== Printing Results for Scenario 04")
+println("Precision DT: " + metricsDT.precisionByThreshold.max._2)
+println("Precision RF: " + metricsRF.precisionByThreshold.max._2)
+println("Recall DT: " + metricsDT.recallByThreshold.max._2)
+println("Recall RF: " + metricsRF.recallByThreshold.max._2)
+println("F-Measure DT: " + metricsDT.fMeasureByThreshold.max._2)
+println("F-Measure RF: " + metricsRF.fMeasureByThreshold.max._2)
+println("Area under P-R Curve DT: " + metricsDT.areaUnderPR)
+println("Area under P-R Curve RF: " + metricsRF.areaUnderPR)
+
