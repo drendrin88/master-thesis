@@ -51,7 +51,7 @@ val allFiles = sc.parallelize(new io.File("./").listFiles.filter(_.getName.endsW
 val Array(allTrainFiles, allTestFiles) = allFiles.randomSplit(Array(0.5,0.5))
 val allTrainData = processData(allTrainFiles)
 val allTestData = processData(allTestFiles)
-println(">>>>>>> Number Files: " + allFiles.count)
+println("\n\n\n>>>>>>> Number Files: " + allFiles.count)
 println(">>>>>>> Number Train Lines: " + allTrainData.count)
 println(">>>>>>> Number Test Lines: " + allTestData.count)
 allTrainData.persist()
@@ -108,7 +108,7 @@ for (x <- 0 to featuresVectorTrain.size-1) {
     trainDt.cache()
     valDt.cache()
 
-    val cvData = MLUtils.kFold(trainingData, 2, 0)
+    val cvData = MLUtils.kFold(trainingData, 10, 0)
     val numClasses = 2
     val catFeature = Map[Int, Int]()
 
@@ -153,20 +153,20 @@ for (x <- 0 to featuresVectorTrain.size-1) {
     valDt.unpersist()
 
     val predictionAndLabelsDT = testData.map { case LabeledPoint(label, features) =>
-    val prediction = modelDT.predict(features)
-    (prediction, label)
+        val prediction = modelDT.predict(features)
+        (prediction, label)
     }
 
     val predictionAndLabelsRF = testData.map { case LabeledPoint(label, features) =>
-    val prediction = modelRF.predict(features)
-    (prediction, label)
+        val prediction = modelRF.predict(features)
+        (prediction, label)
     }
     allTestData.unpersist()
     val metricsDT = new BinaryClassificationMetrics(predictionAndLabelsDT)
     val metricsRF = new BinaryClassificationMetrics(predictionAndLabelsRF)
 
     // Metrics
-    println("\n\n\n====== Printing Results for Scenario " + (x.toInt + 1))
+    println("\n\n====== Printing Results for Scenario " + (x.toInt + 1))
     println("Precision DT: " + metricsDT.precisionByThreshold.max._2)
     println("Precision RF: " + metricsRF.precisionByThreshold.max._2)
     println("Recall DT: " + metricsDT.recallByThreshold.max._2)
